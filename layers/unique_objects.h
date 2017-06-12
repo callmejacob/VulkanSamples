@@ -24,88 +24,49 @@
 #include "vk_layer_data.h"
 #include "vk_safe_struct.h"
 #include "vk_layer_utils.h"
+#include "device_extensions.h"
 #include "mutex"
 
 #pragma once
 
 namespace unique_objects {
 
-// The clang-format utility does not handle non-delimited strings well at all
-// clang-format off
-
-// The display-server-specific WSI extensions are handled explicitly
-static const char *kUniqueObjectsSupportedInstanceExtensions =
-#ifdef VK_USE_PLATFORM_XLIB_KHR
-    VK_KHR_XLIB_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_XCB_KHR
-    VK_KHR_XCB_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_WAYLAND_KHR
-    VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_MIR_KHR
-    VK_KHR_MIR_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_ANDROID_KHR
-    VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
-#endif
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    VK_KHR_WIN32_SURFACE_EXTENSION_NAME
-#endif
-    VK_EXT_DEBUG_MARKER_EXTENSION_NAME
-    VK_EXT_DEBUG_REPORT_EXTENSION_NAME
-    VK_KHR_DISPLAY_EXTENSION_NAME
-    VK_KHR_SURFACE_EXTENSION_NAME
-    VK_NV_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME
-    VK_EXT_VALIDATION_FLAGS_EXTENSION_NAME
-    VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME
-    VK_EXT_DIRECT_MODE_DISPLAY_EXTENSION_NAME
-    VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME;
-
-static const char *kUniqueObjectsSupportedDeviceExtensions =
-    VK_AMD_RASTERIZATION_ORDER_EXTENSION_NAME
-    VK_AMD_SHADER_TRINARY_MINMAX_EXTENSION_NAME
-    VK_AMD_SHADER_EXPLICIT_VERTEX_PARAMETER_EXTENSION_NAME
-    VK_AMD_GCN_SHADER_EXTENSION_NAME
-    VK_IMG_FILTER_CUBIC_EXTENSION_NAME
-    VK_IMG_FORMAT_PVRTC_EXTENSION_NAME
-    VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    VK_KHR_DISPLAY_SWAPCHAIN_EXTENSION_NAME
-    VK_NV_DEDICATED_ALLOCATION_EXTENSION_NAME
-    VK_NV_GLSL_SHADER_EXTENSION_NAME
-    VK_AMD_DRAW_INDIRECT_COUNT_EXTENSION_NAME
-    VK_AMD_NEGATIVE_VIEWPORT_HEIGHT_EXTENSION_NAME
-    VK_AMD_GPU_SHADER_HALF_FLOAT_EXTENSION_NAME
-    VK_AMD_SHADER_BALLOT_EXTENSION_NAME
-    VK_NV_EXTERNAL_MEMORY_EXTENSION_NAME
-#ifdef VK_USE_PLATFORM_WIN32_KHR
-    VK_NV_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME
-    VK_NV_WIN32_KEYED_MUTEX_EXTENSION_NAME
-#endif
-    VK_NV_EXTERNAL_MEMORY_EXTENSION_NAME
-    VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME
-    VK_EXT_DISPLAY_CONTROL_EXTENSION_NAME;
-
-// clang-format on
-
 // All increments must be guarded by global_lock
 static uint64_t global_unique_id = 1;
 
-struct layer_data {
+struct TEMPLATE_STATE {
+    VkDescriptorUpdateTemplateKHR desc_update_template;
+    safe_VkDescriptorUpdateTemplateCreateInfoKHR create_info;
+
+    TEMPLATE_STATE(VkDescriptorUpdateTemplateKHR update_template, safe_VkDescriptorUpdateTemplateCreateInfoKHR *pCreateInfo)
+        : desc_update_template(update_template), create_info(*pCreateInfo) {}
+};
+
+struct instance_layer_data {
     VkInstance instance;
 
     debug_report_data *report_data;
     std::vector<VkDebugReportCallbackEXT> logging_callback;
-    VkLayerDispatchTable *device_dispatch_table;
-    VkLayerInstanceDispatchTable *instance_dispatch_table;
+    VkLayerInstanceDispatchTable dispatch_table = {};
 
     // The following are for keeping track of the temporary callbacks that can
     // be used in vkCreateInstance and vkDestroyInstance:
     uint32_t num_tmp_callbacks;
     VkDebugReportCallbackCreateInfoEXT *tmp_dbg_create_infos;
     VkDebugReportCallbackEXT *tmp_callbacks;
+
+    std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
+
+    InstanceExtensions extensions = {};
+};
+
+struct layer_data {
+    instance_layer_data *instance_data;
+
+    debug_report_data *report_data;
+    VkLayerDispatchTable dispatch_table = {};
+
+    std::unordered_map<uint64_t, std::unique_ptr<TEMPLATE_STATE>> desc_template_map;
 
     bool wsi_enabled;
     std::unordered_map<uint64_t, uint64_t> unique_id_mapping;  // Map uniqueID to actual object handle
@@ -114,18 +75,7 @@ struct layer_data {
     layer_data() : wsi_enabled(false), gpu(VK_NULL_HANDLE){};
 };
 
-struct instance_extension_enables {
-    bool wsi_enabled;
-    bool xlib_enabled;
-    bool xcb_enabled;
-    bool wayland_enabled;
-    bool mir_enabled;
-    bool android_enabled;
-    bool win32_enabled;
-    bool display_enabled;
-};
-
-static std::unordered_map<void *, struct instance_extension_enables> instance_ext_map;
+static std::unordered_map<void *, instance_layer_data *> instance_layer_data_map;
 static std::unordered_map<void *, layer_data *> layer_data_map;
 
 static std::mutex global_lock;  // Protect map accesses and unique_id increments
@@ -150,6 +100,24 @@ bool ContainsExtStruct(const T *target, VkStructureType ext_type) {
     }
 
     return false;
+}
+
+
+/* Unwrap a handle. */
+// must hold lock!
+template<typename HandleType, typename MapType>
+HandleType Unwrap(MapType *layer_data, HandleType wrappedHandle) {
+    // TODO: don't use operator[] here.
+    return (HandleType)layer_data->unique_id_mapping[reinterpret_cast<uint64_t const &>(wrappedHandle)];
+}
+
+/* Wrap a newly created handle with a new unique ID, and return the new ID. */
+// must hold lock!
+template<typename HandleType, typename MapType>
+HandleType WrapNew(MapType *layer_data, HandleType newlyCreatedHandle) {
+    auto unique_id = global_unique_id++;
+    layer_data->unique_id_mapping[unique_id] = reinterpret_cast<uint64_t const &>(newlyCreatedHandle);
+    return (HandleType)unique_id;
 }
 
 }  // namespace unique_objects

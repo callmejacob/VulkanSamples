@@ -57,35 +57,9 @@
 #define VULKAN_ILAYERCONF_DIR "implicit_layer.d"
 #define VULKAN_LAYER_DIR "layer"
 
-#if defined(EXTRASYSCONFDIR)
-#define EXTRA_DRIVERS_SYSCONFDIR_INFO ":" EXTRASYSCONFDIR VULKAN_DIR VULKAN_ICDCONF_DIR
-#define EXTRA_ELAYERS_SYSCONFDIR_INFO ":" EXTRASYSCONFDIR VULKAN_DIR VULKAN_ELAYERCONF_DIR
-#define EXTRA_ILAYERS_SYSCONFDIR_INFO ":" EXTRASYSCONFDIR VULKAN_DIR VULKAN_ILAYERCONF_DIR
-#else
-#define EXTRA_DRIVERS_SYSCONFDIR_INFO
-#define EXTRA_ELAYERS_SYSCONFDIR_INFO
-#define EXTRA_ILAYERS_SYSCONFDIR_INFO
-#endif
-
-#if defined(EXTRADATADIR)
-#define EXTRA_DRIVERS_DATADIR_INFO ":" EXTRADATADIR VULKAN_DIR VULKAN_ICDCONF_DIR
-#define EXTRA_ELAYERS_DATADIR_INFO ":" EXTRADATADIR VULKAN_DIR VULKAN_ELAYERCONF_DIR
-#define EXTRA_ILAYERS_DATADIR_INFO ":" EXTRADATADIR VULKAN_DIR VULKAN_ILAYERCONF_DIR
-#else
-#define EXTRA_DRIVERS_DATADIR_INFO
-#define EXTRA_ELAYERS_DATADIR_INFO
-#define EXTRA_ILAYERS_DATADIR_INFO
-#endif
-
-#define DEFAULT_VK_DRIVERS_INFO              \
-    SYSCONFDIR VULKAN_DIR VULKAN_ICDCONF_DIR \
-        ":" DATADIR VULKAN_DIR VULKAN_ICDCONF_DIR EXTRA_DRIVERS_SYSCONFDIR_INFO EXTRA_DRIVERS_DATADIR_INFO
-#define DEFAULT_VK_ELAYERS_INFO                 \
-    SYSCONFDIR VULKAN_DIR VULKAN_ELAYERCONF_DIR \
-        ":" DATADIR VULKAN_DIR VULKAN_ELAYERCONF_DIR EXTRA_ELAYERS_SYSCONFDIR_INFO EXTRA_ELAYERS_DATADIR_INFO
-#define DEFAULT_VK_ILAYERS_INFO                 \
-    SYSCONFDIR VULKAN_DIR VULKAN_ILAYERCONF_DIR \
-        ":" DATADIR VULKAN_DIR VULKAN_ILAYERCONF_DIR EXTRA_ILAYERS_SYSCONFDIR_INFO EXTRA_ILAYERS_DATADIR_INFO
+#define DEFAULT_VK_DRIVERS_INFO ""
+#define DEFAULT_VK_ELAYERS_INFO ""
+#define DEFAULT_VK_ILAYERS_INFO ""
 
 #define DEFAULT_VK_DRIVERS_PATH ""
 #if !defined(DEFAULT_VK_LAYERS_PATH)
@@ -97,9 +71,9 @@
 #endif
 #define LAYERS_PATH_ENV "VK_LAYER_PATH"
 
-#define HOME_VK_DRIVERS_INFO VULKAN_DIR VULKAN_ICDCONF_DIR
-#define HOME_VK_ELAYERS_INFO VULKAN_DIR VULKAN_ELAYERCONF_DIR
-#define HOME_VK_ILAYERS_INFO VULKAN_DIR VULKAN_ILAYERCONF_DIR
+#define RELATIVE_VK_DRIVERS_INFO VULKAN_DIR VULKAN_ICDCONF_DIR
+#define RELATIVE_VK_ELAYERS_INFO VULKAN_DIR VULKAN_ELAYERCONF_DIR
+#define RELATIVE_VK_ILAYERS_INFO VULKAN_DIR VULKAN_ILAYERCONF_DIR
 
 // C99:
 #define PRINTF_SIZE_T_SPECIFIER "%zu"
@@ -124,6 +98,10 @@ static inline char *loader_platform_dirname(char *path) { return dirname(path); 
 // Dynamic Loading of libraries:
 typedef void *loader_platform_dl_handle;
 static inline loader_platform_dl_handle loader_platform_open_library(const char *libPath) {
+    // When loading the library, we use RTLD_LAZY so that not all symbols have to be
+    // resolved at this time (which improves performance). Note that if not all symbols
+    // can be resolved, this could cause crashes later. Use the LD_BIND_NOW environment
+    // variable to force all symbols to be resolved here.
     return dlopen(libPath, RTLD_LAZY | RTLD_LOCAL);
 }
 static inline const char *loader_platform_open_library_error(const char *libPath) { return dlerror(); }
@@ -190,6 +168,9 @@ static inline void loader_platform_thread_cond_broadcast(loader_platform_thread_
 #define PATH_SEPARATOR ';'
 #define DIRECTORY_SYMBOL '\\'
 #define DEFAULT_VK_REGISTRY_HIVE HKEY_LOCAL_MACHINE
+#define DEFAULT_VK_REGISTRY_HIVE_STR "HKEY_LOCAL_MACHINE"
+#define SECONDARY_VK_REGISTRY_HIVE HKEY_CURRENT_USER
+#define SECONDARY_VK_REGISTRY_HIVE_STR "HKEY_CURRENT_USER"
 #define DEFAULT_VK_DRIVERS_INFO "SOFTWARE\\Khronos\\" API_NAME "\\Drivers"
 #define DEFAULT_VK_DRIVERS_PATH ""
 #define DEFAULT_VK_ELAYERS_INFO "SOFTWARE\\Khronos\\" API_NAME "\\ExplicitLayers"
@@ -201,9 +182,9 @@ static inline void loader_platform_thread_cond_broadcast(loader_platform_thread_
 #define LAYERS_SOURCE_PATH NULL
 #endif
 #define LAYERS_PATH_ENV "VK_LAYER_PATH"
-#define HOME_VK_DRIVERS_INFO ""
-#define HOME_VK_ELAYERS_INFO ""
-#define HOME_VK_ILAYERS_INFO ""
+#define RELATIVE_VK_DRIVERS_INFO ""
+#define RELATIVE_VK_ELAYERS_INFO ""
+#define RELATIVE_VK_ILAYERS_INFO ""
 #define PRINTF_SIZE_T_SPECIFIER "%Iu"
 
 // File IO
@@ -262,10 +243,18 @@ static char *loader_platform_basename(char *pathname) {
 
 // Dynamic Loading:
 typedef HMODULE loader_platform_dl_handle;
-static loader_platform_dl_handle loader_platform_open_library(const char *libPath) { return LoadLibrary(libPath); }
+static loader_platform_dl_handle loader_platform_open_library(const char *lib_path) {
+    // Try loading the library the original way first.
+    loader_platform_dl_handle lib_handle = LoadLibrary(lib_path);
+    if (lib_handle == NULL && GetLastError() == ERROR_MOD_NOT_FOUND && PathFileExists(lib_path)) {
+        // If that failed, then try loading it with broader search folders.
+        lib_handle = LoadLibraryEx(lib_path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
+    }
+    return lib_handle;
+}
 static char *loader_platform_open_library_error(const char *libPath) {
     static char errorMsg[164];
-    (void)snprintf(errorMsg, 163, "Failed to open dynamic library \"%s\"", libPath);
+    (void)snprintf(errorMsg, 163, "Failed to open dynamic library \"%s\" with error %d", libPath, GetLastError());
     return errorMsg;
 }
 static void loader_platform_close_library(loader_platform_dl_handle library) { FreeLibrary(library); }
@@ -313,9 +302,6 @@ static void loader_platform_thread_cond_wait(loader_platform_thread_cond *pCond,
     SleepConditionVariableCS(pCond, pMutex, INFINITE);
 }
 static void loader_platform_thread_cond_broadcast(loader_platform_thread_cond *pCond) { WakeAllConditionVariable(pCond); }
-
-// Windows Registry:
-char *loader_get_registry_string(const HKEY hive, const LPCTSTR sub_key, const char *value);
 
 #define loader_stack_alloc(size) _alloca(size)
 #else  // defined(_WIN32)

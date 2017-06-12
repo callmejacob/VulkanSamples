@@ -77,6 +77,9 @@ class counter {
     std::mutex counter_lock;
     std::condition_variable counter_condition;
     void startWrite(debug_report_data *report_data, T object) {
+        if (object == VK_NULL_HANDLE) {
+            return;
+        }
         bool skipCall = false;
         loader_platform_thread_id tid = loader_platform_get_thread_id();
         std::unique_lock<std::mutex> lock(counter_lock);
@@ -147,6 +150,9 @@ class counter {
     }
 
     void finishWrite(T object) {
+        if (object == VK_NULL_HANDLE) {
+            return;
+        }
         // Object is no longer in use
         std::unique_lock<std::mutex> lock(counter_lock);
         uses[object].writer_count -= 1;
@@ -159,6 +165,9 @@ class counter {
     }
 
     void startRead(debug_report_data *report_data, T object) {
+        if (object == VK_NULL_HANDLE) {
+            return;
+        }
         bool skipCall = false;
         loader_platform_thread_id tid = loader_platform_get_thread_id();
         std::unique_lock<std::mutex> lock(counter_lock);
@@ -193,6 +202,9 @@ class counter {
         }
     }
     void finishRead(T object) {
+        if (object == VK_NULL_HANDLE) {
+            return;
+        }
         std::unique_lock<std::mutex> lock(counter_lock);
         uses[object].reader_count -= 1;
         if ((uses[object].reader_count == 0) && (uses[object].writer_count == 0)) {
@@ -248,6 +260,11 @@ struct layer_data {
     counter<VkDebugReportCallbackEXT> c_VkDebugReportCallbackEXT;
     counter<VkObjectTableNVX> c_VkObjectTableNVX;
     counter<VkIndirectCommandsLayoutNVX> c_VkIndirectCommandsLayoutNVX;
+    counter<VkDisplayKHR> c_VkDisplayKHR;
+    counter<VkDisplayModeKHR> c_VkDisplayModeKHR;
+    counter<VkSurfaceKHR> c_VkSurfaceKHR;
+    counter<VkSwapchainKHR> c_VkSwapchainKHR;
+    counter<VkDescriptorUpdateTemplateKHR> c_VkDescriptorUpdateTemplateKHR;
 #else   // DISTINCT_NONDISPATCHABLE_HANDLES
     counter<uint64_t> c_uint64_t;
 #endif  // DISTINCT_NONDISPATCHABLE_HANDLES
@@ -284,7 +301,13 @@ struct layer_data {
           c_VkShaderModule("VkShaderModule", VK_DEBUG_REPORT_OBJECT_TYPE_SHADER_MODULE_EXT),
           c_VkDebugReportCallbackEXT("VkDebugReportCallbackEXT", VK_DEBUG_REPORT_OBJECT_TYPE_DEBUG_REPORT_EXT),
           c_VkObjectTableNVX("VkObjectTableNVX", VK_DEBUG_REPORT_OBJECT_TYPE_OBJECT_TABLE_NVX_EXT),
-          c_VkIndirectCommandsLayoutNVX("VkIndirectCommandsLayoutNVX", VK_DEBUG_REPORT_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NVX_EXT)
+          c_VkIndirectCommandsLayoutNVX("VkIndirectCommandsLayoutNVX", VK_DEBUG_REPORT_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NVX_EXT),
+          c_VkDisplayKHR("VkDisplayKHR", VK_DEBUG_REPORT_OBJECT_TYPE_DISPLAY_KHR_EXT),
+          c_VkDisplayModeKHR("VkDisplayModeKHR", VK_DEBUG_REPORT_OBJECT_TYPE_DISPLAY_MODE_KHR_EXT),
+          c_VkSurfaceKHR("VkSurfaceKHR", VK_DEBUG_REPORT_OBJECT_TYPE_SURFACE_KHR_EXT),
+          c_VkSwapchainKHR("VkSwapchainKHR", VK_DEBUG_REPORT_OBJECT_TYPE_SWAPCHAIN_KHR_EXT),
+          // TODO: Add proper structure for VkDescriptorUpdateTemplateKHR
+          c_VkDescriptorUpdateTemplateKHR("VkDescriptorUpdateTemplateKHR", VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT)
 #else   // DISTINCT_NONDISPATCHABLE_HANDLES
           c_uint64_t("NON_DISPATCHABLE_HANDLE", VK_DEBUG_REPORT_OBJECT_TYPE_UNKNOWN_EXT)
 #endif  // DISTINCT_NONDISPATCHABLE_HANDLES
@@ -328,6 +351,11 @@ WRAPPER(VkShaderModule)
 WRAPPER(VkDebugReportCallbackEXT)
 WRAPPER(VkObjectTableNVX)
 WRAPPER(VkIndirectCommandsLayoutNVX)
+WRAPPER(VkDisplayKHR)
+WRAPPER(VkDisplayModeKHR)
+WRAPPER(VkSurfaceKHR)
+WRAPPER(VkSwapchainKHR)
+WRAPPER(VkDescriptorUpdateTemplateKHR)
 #else   // DISTINCT_NONDISPATCHABLE_HANDLES
 WRAPPER(uint64_t)
 #endif  // DISTINCT_NONDISPATCHABLE_HANDLES

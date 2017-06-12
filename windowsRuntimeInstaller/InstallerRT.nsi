@@ -45,6 +45,9 @@
 !ifndef HIDE_PUBLISHER
   !define PUBLISHER "YourCompany, Inc."
 !endif
+!ifndef COPYRIGHT
+  !define COPYRIGHT ""
+!endif
 #!define VERSION_BUILDNO "0"
 !define PRODUCTVERSION "${VERSION_API_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}.${VERSION_BUILDNO}"
 
@@ -232,7 +235,7 @@ VIProductVersion "${PRODUCTVERSION}"
 VIAddVersionKey  "ProductName" "${APINAME} Runtime"
 VIAddVersionKey  "FileVersion" "${PRODUCTVERSION}"
 VIAddVersionKey  "ProductVersion" "${PRODUCTVERSION}"
-VIAddVersionKey  "LegalCopyright" ""
+VIAddVersionKey  "LegalCopyright" "${COPYRIGHT}"
 
 !ifdef UNINSTALLER
     VIAddVersionKey  "FileDescription" "${APINAME} Runtime Uninstaller"
@@ -436,23 +439,23 @@ Section
         # 32-bit DLLs/EXEs destined for SysWOW64
         ##########################################
         SetOutPath $WINDIR\SysWow64
-        File /oname=${APILOWER}-$FileVersion.dll ..\build32\loader\Release\${APILOWER}-${VERSION_ABI_MAJOR}.dll
-        File /oname=${APILOWER}info-$FileVersion.exe ..\build32\demos\Release\${APILOWER}info.exe
+        File /oname=${APILOWER}-$FileVersion.dll ..\build32\loader\RelWithDebInfo\${APILOWER}-${VERSION_ABI_MAJOR}.dll
+        File /oname=${APILOWER}info-$FileVersion.exe ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
         StrCpy $1 30
         Call CheckForError
 
         # 64-bit DLLs/EXEs
         ##########################################
         SetOutPath $WINDIR\System32
-        File /oname=${APILOWER}-$FileVersion.dll ..\build\loader\Release\${APILOWER}-${VERSION_ABI_MAJOR}.dll
+        File /oname=${APILOWER}-$FileVersion.dll ..\build\loader\RelWithDebInfo\${APILOWER}-${VERSION_ABI_MAJOR}.dll
         StrCpy $1 35
         Call CheckForError
 
         # vulkaninfo.exe
-        File /oname=${APILOWER}info-$FileVersion.exe ..\build\demos\Release\${APILOWER}info.exe
+        File /oname=${APILOWER}info-$FileVersion.exe ..\build\demos\RelWithDebInfo\${APILOWER}info.exe
         SetOutPath "$INSTDIR"
-        File /oname=${APILOWER}info.exe ..\build\demos\Release\${APILOWER}info.exe
-        File /oname=${APILOWER}info32.exe ..\build32\demos\Release\${APILOWER}info.exe
+        File /oname=${APILOWER}info.exe ..\build\demos\RelWithDebInfo\${APILOWER}info.exe
+        File /oname=${APILOWER}info32.exe ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
         StrCpy $1 40
         Call CheckForError
 
@@ -462,14 +465,14 @@ Section
         # 32-bit DLLs/EXEs destined for SysWOW64
         ##########################################
         SetOutPath $WINDIR\System32
-        File /oname=${APILOWER}-$FileVersion.dll ..\build32\loader\Release\${APILOWER}-${VERSION_ABI_MAJOR}.dll
+        File /oname=${APILOWER}-$FileVersion.dll ..\build32\loader\RelWithDebInfo\${APILOWER}-${VERSION_ABI_MAJOR}.dll
         StrCpy $1 50
         Call CheckForError
 
         # vulkaninfo.exe
-        File /oname=${APILOWER}info-$FileVersion.exe ..\build32\demos\Release\${APILOWER}info.exe
+        File /oname=${APILOWER}info-$FileVersion.exe ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
         SetOutPath "$INSTDIR"
-        File /oname=${APILOWER}info ..\build32\demos\Release\${APILOWER}info.exe
+        File /oname=${APILOWER}info.exe ..\build32\demos\RelWithDebInfo\${APILOWER}info.exe
         StrCpy $1 55
         Call CheckForError
 

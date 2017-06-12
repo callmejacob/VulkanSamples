@@ -20,6 +20,15 @@
  * Author: Mark Lobodzinski <mark@lunarg.com>
  * Author: Rene Lindsay <rene@lunarg.com>
  */
+
+#ifdef __GNUC__
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
+#else
+#define strndup(p, n) strdup(p)
+#endif
+
 #include <assert.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -47,6 +56,7 @@
 #ifdef _WIN32
 
 #define snprintf _snprintf
+#define strdup   _strdup
 
 // Returns nonzero if the console is used only for this process. Will return
 // zero if another process (such as cmd.exe) is also attached.
@@ -213,6 +223,7 @@ static const char *VkPhysicalDeviceTypeString(VkPhysicalDeviceType type) {
         STR(INTEGRATED_GPU);
         STR(DISCRETE_GPU);
         STR(VIRTUAL_GPU);
+        STR(CPU);
 #undef STR
         default:
             return "UNKNOWN_DEVICE";
@@ -1057,14 +1068,17 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu)
     printf("\tdepthBounds                             = %u\n", features->depthBounds                            );
     printf("\twideLines                               = %u\n", features->wideLines                              );
     printf("\tlargePoints                             = %u\n", features->largePoints                            );
+    printf("\talphaToOne                              = %u\n", features->alphaToOne                             );
+    printf("\tmultiViewport                           = %u\n", features->multiViewport                          );
+    printf("\tsamplerAnisotropy                       = %u\n", features->samplerAnisotropy                      );
     printf("\ttextureCompressionETC2                  = %u\n", features->textureCompressionETC2                 );
     printf("\ttextureCompressionASTC_LDR              = %u\n", features->textureCompressionASTC_LDR             );
     printf("\ttextureCompressionBC                    = %u\n", features->textureCompressionBC                   );
     printf("\tocclusionQueryPrecise                   = %u\n", features->occlusionQueryPrecise                  );
     printf("\tpipelineStatisticsQuery                 = %u\n", features->pipelineStatisticsQuery                );
-    printf("\tvertexSideEffects                       = %u\n", features->vertexPipelineStoresAndAtomics         );
-    printf("\ttessellationSideEffects                 = %u\n", features->fragmentStoresAndAtomics               );
-    printf("\tgeometrySideEffects                     = %u\n", features->shaderTessellationAndGeometryPointSize );
+    printf("\tvertexPipelineStoresAndAtomics          = %u\n", features->vertexPipelineStoresAndAtomics         );
+    printf("\tfragmentStoresAndAtomics                = %u\n", features->fragmentStoresAndAtomics               );
+    printf("\tshaderTessellationAndGeometryPointSize  = %u\n", features->shaderTessellationAndGeometryPointSize );
     printf("\tshaderImageGatherExtended               = %u\n", features->shaderImageGatherExtended              );
     printf("\tshaderStorageImageExtendedFormats       = %u\n", features->shaderStorageImageExtendedFormats      );
     printf("\tshaderStorageImageMultisample           = %u\n", features->shaderStorageImageMultisample          );
@@ -1081,7 +1095,6 @@ static void AppGpuDumpFeatures(const struct AppGpu *gpu)
     printf("\tshaderInt16                             = %u\n", features->shaderInt16                            );
     printf("\tshaderResourceResidency                 = %u\n", features->shaderResourceResidency                );
     printf("\tshaderResourceMinLod                    = %u\n", features->shaderResourceMinLod                   );
-    printf("\talphaToOne                              = %u\n", features->alphaToOne                             );
     printf("\tsparseBinding                           = %u\n", features->sparseBinding                          );
     printf("\tsparseResidencyBuffer                   = %u\n", features->sparseResidencyBuffer                  );
     printf("\tsparseResidencyImage2D                  = %u\n", features->sparseResidencyImage2D                 );
@@ -1312,6 +1325,29 @@ static void AppGpuDumpQueueProps(const struct AppGpu *gpu, uint32_t id) {
     fflush(stdout);
 }
 
+// This prints a number of bytes in a human-readable format according to prefixes of the International System of Quantities (ISQ),
+// defined in ISO/IEC 80000. The prefixes used here are not SI prefixes, but rather the binary prefixes based on powers of 1024
+// (kibi-, mebi-, gibi- etc.).
+#define kBufferSize 32
+
+static char *HumanReadable(const size_t sz) {
+    const char prefixes[] = "KMGTPEZY";
+    char buf[kBufferSize];
+    int which = -1;
+    double result = (double)sz;
+    while (result > 1024 && which < 7) {
+        result /= 1024;
+        ++which;
+    }
+
+    char unit[] = "\0i";
+    if (which >= 0) {
+        unit[0] = prefixes[which];
+    }
+    snprintf(buf, kBufferSize, "%.2f %sB", result, unit);
+    return strndup(buf, kBufferSize);
+}
+
 static void AppGpuDumpMemoryProps(const struct AppGpu *gpu) {
     const VkPhysicalDeviceMemoryProperties *props = &gpu->memory_props;
 
@@ -1319,7 +1355,7 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu) {
     printf("=================================\n");
     printf("\tmemoryTypeCount       = %u\n", props->memoryTypeCount);
     for (uint32_t i = 0; i < props->memoryTypeCount; i++) {
-        printf("\tmemoryTypes[%u] : \n", i);
+        printf("\tmemoryTypes[%u] :\n", i);
         printf("\t\theapIndex     = %u\n", props->memoryTypes[i].heapIndex);
         printf("\t\tpropertyFlags = 0x%" PRIxLEAST32 ":\n", props->memoryTypes[i].propertyFlags);
 
@@ -1337,12 +1373,15 @@ static void AppGpuDumpMemoryProps(const struct AppGpu *gpu) {
     printf("\n");
     printf("\tmemoryHeapCount       = %u\n", props->memoryHeapCount);
     for (uint32_t i = 0; i < props->memoryHeapCount; i++) {
-        printf("\tmemoryHeaps[%u] : \n", i);
+        printf("\tmemoryHeaps[%u] :\n", i);
         const VkDeviceSize memSize = props->memoryHeaps[i].size;
-        printf("\t\tsize          = " PRINTF_SIZE_T_SPECIFIER " (0x%" PRIxLEAST64 ")\n", (size_t)memSize, memSize);
+        char *mem_size_human_readable = HumanReadable((const size_t)memSize);
+        printf("\t\tsize          = " PRINTF_SIZE_T_SPECIFIER " (0x%" PRIxLEAST64 ") (%s)\n", (size_t)memSize, memSize,
+               mem_size_human_readable);
+        free(mem_size_human_readable);
 
         VkMemoryHeapFlags heap_flags = props->memoryHeaps[i].flags;
-        printf("\t\tflags: \n\t\t\t");
+        printf("\t\tflags:\n\t\t\t");
         printf((heap_flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? "VK_MEMORY_HEAP_DEVICE_LOCAL_BIT\n" : "None\n");
     }
     fflush(stdout);
